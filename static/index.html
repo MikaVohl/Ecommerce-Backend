@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Stripe Payment Page</title>
+    <script src="https://js.stripe.com/v3/"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+    <div id="checkout">
+        <script async src="purchase.js"></script>
+        <div id="checkout-links">
+
+        </div>
+        <!-- <payment-widget 
+        payment-url="/checkout"
+        item-id="plan_QEocWw9bHrNbtA"
+        ></payment-widget>
+        -->
+        <!-- <payment-widget 
+        payment-url="/checkout"
+        item-id="price_1POg3hRrj6kQ0t56z6Qyz08n"
+        ></payment-widget> -->
+    </div>
+    <br><br>
+    <button id="charge" onclick=charge()>Charge Me $10</button>
+    <br><br><br><br>
+    <div id="transactions">
+        <h2>Transactions</h2>
+        <h3><i>............Date...........Amount..Customer..Description</i></h3>
+        <div id="transaction-list"> </div>
+    </div>
+    <script>
+        getTransactions();
+        // insert information from env into #checkout-links div
+        let xhr = new XMLHttpRequest();
+        xhr.open('POST', '/checkout_links');
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                let response = JSON.parse(xhr.responseText);
+                for(let i=0; i<response.length; i++) {
+                    let paymentWidget = document.createElement('payment-widget');
+                    // paymentWidget.setAttribute('payment-url', response[i].paymentURL);
+                    paymentWidget.setAttribute('payment-url', '/checkout');
+                    paymentWidget.setAttribute('plan-id', response[i].planID);
+                    document.getElementById('checkout-links').appendChild(paymentWidget);
+                }
+            }
+        }
+        let custType = sessionStorage.getItem('custType');
+        xhr.send(JSON.stringify({ "custType": custType }));
+
+        function charge(){
+            let cart = JSON.stringify(
+                { item: 'charge', price: 10, quantity: 1, desc: '$10 Test Fee' },
+            );
+            sessionStorage.setItem('shoppingCart', cart)
+            window.location.href = '/checkout';
+        }
+
+
+        function getTransactions() {
+            let xhr = new XMLHttpRequest();
+            xhr.open('POST', '/get_transactions');
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    let transactions = JSON.parse(xhr.responseText);
+                    let transactionDiv = document.getElementById('transaction-list');
+                    while (transactionDiv.firstChild) {
+                        transactionDiv.removeChild(transactionDiv.firstChild);
+                    }
+                    transactions.forEach(function(transaction) {
+                        let transactionP = document.createElement('p');
+                        if (transaction['traDesc'] === null) {
+                            transaction['traDesc'] = "";
+                        }
+                        transactionP.textContent = transaction['traTimestamp'] +" - $" +(Math.round(transaction['traAmount'] * 100) / 100).toFixed(2)+" - "+transaction['custID']+": "+transaction['name']+" - "+transaction['traDesc'];
+                        if(!transaction['traSuccess']) {
+                            transactionP.style.color = 'red';
+                        }
+                        transactionDiv.appendChild(transactionP);
+                    });
+                } else {
+                    console.error('Failed to get transactions.');
+                }
+            };
+            xhr.send(JSON.stringify({ page: 1, maxRecords: 10}));
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Checkout Page</title>
+    <script src="https://js.stripe.com/v3/"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+    <h1>Checkout Page</h1>
+    <h3>Customer ID: <span id="customer-id"></span></h3>
+    <h3>Payment ID: <span id="payment-id"></span></h3>
+    <div id="payment-options">
+        <h3>Select a Payment Method</h3>
+        <select id="payment-select">
+            <option value="" placeholder="">Your Cards</option>
+        </select>
+    </div>
+    <div id="payment-details">
+        <h3>Payment Details</h3>
+        <p>Card Number</p>
+        <div id="card-number" style="border: 1px solid gray; width: 140px;"></div>
+        <p>Expiry Date</p>
+        <div id="card-expiry" style="border: 1px solid gray; width: 55px;"></div>
+        <p>CVC</p>
+        <div id="card-cvc" style="border: 1px solid gray; width: 35px;"></div>
+        <br>
+        <input type="checkbox" id="save-card">
+        <label for="save-card">Save Payment Info</label>
+    </div>
+
+    <div id="cart-details">
+        <h3>Cart Details</h2>
+        <ul>
+
+        </ul>
+    </div>
+
+    <div id="purchase-form">
+        <button id="buy-button">Purchase</button>
+    </div>
+    <h3>Status: <span id="payment-error"></span></h3>
+
+    <script>
+        let currentCustomerId = sessionStorage.getItem('customer'); //"cus_QH3ojJ0C49CXZr";
+        if (currentCustomerId == null) {
+            window.location.href = '/customers';
+        }
+        else{
+            let shoppingCart = JSON.parse(sessionStorage.getItem('shoppingCart'));
+            if (shoppingCart['item'] === 'sub') { // check if is a subscription
+                document.getElementById('save-card').checked = true;
+                document.getElementById('save-card').disabled = true;
+            }
+            let currPayID = null;
+            document.getElementById('customer-id').textContent = currentCustomerId;
+
+            // get name and price based on stripe product id
+            let xhr = new XMLHttpRequest();
+            if(shoppingCart['item'] === 'sub'){
+                xhr.open('POST', '/get_item');
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        let item = JSON.parse(xhr.responseText);
+                        let cartDetails = document.getElementById('cart-details').querySelector('ul')
+                        // populate cart details with items
+                        let listItem = document.createElement('li');
+                        let quantity = shoppingCart.quantity;
+                        listItem.textContent = item.name+": $"+(Math.round(item.price * 100) / 100).toFixed(2)+" x"+quantity+" -- $"+item.price*quantity;
+                        cartDetails.appendChild(listItem);
+                    } else {
+                        console.error('Failed to get product.');
+                    }
+                };
+                xhr.send(JSON.stringify({planID: shoppingCart.planID}));
+            } else {
+                let cartDetails = document.getElementById('cart-details').querySelector('ul')
+                // populate cart details with items
+                let listItem = document.createElement('li');
+                listItem.textContent = shoppingCart.desc+": $"+(Math.round(shoppingCart.price * 100) / 100).toFixed(2);
+                cartDetails.appendChild(listItem);
+            }
+            
+            document.getElementById('payment-select').addEventListener('change', function() {
+                currPayID = this.value;
+                document.getElementById('payment-id').textContent = currPayID;
+                if (currPayID == null || currPayID === "") {
+                    document.getElementById('payment-details').style.opacity = 1;
+                } else{
+                    document.getElementById('payment-details').style.opacity = 0;
+                }
+
+            });
+            getPaymentMethods();
+            function getPaymentMethods() {
+                let xhr = new XMLHttpRequest();
+                xhr.open('POST', '/get_payment_methods');
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        let payMethods = JSON.parse(xhr.responseText);
+                        let paySelect = document.getElementById('payment-select');
+                        while (paySelect.firstChild) {
+                            paySelect.removeChild(paySelect.firstChild);
+                        }
+                        let newPayMethod = document.createElement('option');
+                        newPayMethod.value = "";
+                        newPayMethod.textContent = "Use New Card";
+                        paySelect.appendChild(newPayMethod);
+                        payMethods.forEach(function(payMethod) {
+                            let option = document.createElement('option');
+                            option.value = payMethod.id;
+                            option.textContent = payMethod.card.brand+" - "+payMethod.card.last4;
+                            paySelect.appendChild(option);
+                        });
+                    } else {
+                        console.error('Failed to get cards.');
+                    }
+                };
+                xhr.send(JSON.stringify({ custID: currentCustomerId}));
+            }
+
+            let stripe = Stripe('pk_test_51PO1jPRrj6kQ0t56xHIfJyDEJ9Yg58enA8wTUs2j3LqxcBPOrT4CazhEWPVh2XIPwJ6VNw6FkIcQkdP6kYa6dQkj00u0MgBKA7');
+            let elements = stripe.elements();
+
+            let stripeCardNumber = elements.create('cardNumber');
+            stripeCardNumber.mount('#card-number');
+
+            let stripeCardExpiry = elements.create('cardExpiry');
+            stripeCardExpiry.mount('#card-expiry');
+
+            let stripeCardCvc = elements.create('cardCvc');
+            stripeCardCvc.mount('#card-cvc');
+            
+
+            document.getElementById('buy-button').addEventListener('click', function() {
+                if(!(currPayID == null || currPayID === "")){
+                    xhr = new XMLHttpRequest();
+                    if(shoppingCart['item'] === 'sub'){
+                        subscribe();
+                    }else{
+                        createCharge(false);
+                    }
+                }
+                else{
+                    stripe.createPaymentMethod({ // fill in billing details when creating payment method
+                        type: 'card',
+                        card: stripeCardNumber
+                    }).then(function(result) {
+                        if (result.error) {
+                            console.error(result.error);
+                            document.getElementById('payment-error').textContent = result.error.message;
+                        } else {
+                            let payMethod = result.paymentMethod;
+                            currPayID = payMethod.id;
+                            if(shoppingCart['item'] === 'sub'){
+                                subscribe();
+                            }else{
+                                createCharge(document.getElementById('save-card').checked);
+                            }
+                        }
+                    });
+                }
+            })
+            function subscribe(){
+                xhr.open('POST', '/subscribe');
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        let result = JSON.parse(xhr.responseText);
+                        if(result.error) {
+                            console.error(result.error);
+                            document.getElementById('payment-error').textContent = result.error.message;
+                        } else {
+                            document.getElementById('payment-error').textContent = "Success";
+                            sessionStorage.removeItem('shoppingCart');
+                        }
+                        currPayID = null;
+                        getPaymentMethods();
+                    }
+                    else{
+                        console.error('Subscription failed.');
+                        document.getElementById('payment-error').textContent = 'Subscription Failed';
+                    }
+                }
+                xhr.send(JSON.stringify({custID: currentCustomerId, planID: shoppingCart.planID, payment_method: currPayID}));
+            }
+            function createCharge(save){
+                xhr.open('POST', '/create_charge');
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        let client_secret = JSON.parse(xhr.responseText);
+                        if(client_secret.error) {
+                            console.error(client_secret.error);
+                            document.getElementById('payment-error').textContent = client_secret.error.message;
+                        } else {
+                            stripe.confirmCardPayment(client_secret).then(function(result) {
+                                if (result.error) {
+                                    console.error(result.error);
+                                    document.getElementById('payment-error').textContent = result.error.message;
+                                } else {
+                                    document.getElementById('payment-error').textContent = "Pending";
+                                    if (result.paymentIntent.status === 'succeeded') {
+                                        document.getElementById('payment-error').textContent = "Success";
+                                        sessionStorage.removeItem('shoppingCart');
+                                    }
+                                }
+                            });
+                        }
+                        currPayID = null;
+                        getPaymentMethods();
+                    } else {
+                        console.error('Purchase failed.');
+                        document.getElementById('payment-error').textContent = 'Purchase Failed';
+                    }
+                };
+                xhr.send(JSON.stringify({custID: currentCustomerId, price: shoppingCart.price, quantity: shoppingCart.quantity, description: shoppingCart.desc, payment_method: currPayID, save_card: save}));
+            }
+        }
+    </script>
+</body>
+</html>

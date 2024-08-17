@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Paying Customer Management</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+    <h1>Customer Management</h1>
+    <h3>Customer ID: <span id="customer-id"></span></h3>
+    <h3>Payment Method ID: <span id="pay-id"></span></h3>
+
+    <div id="create-customer">
+        <h2>Create a customer from existing profile</h2>
+        <select id="customer-type">
+            <option value="1">Patient</option>
+            <option value="2">Practice</option>
+            <option value="3">Location</option>
+            <option value="4">Therapist</option>
+        </select>
+        <input type="text" id="id" placeholder="ID">
+        <button id="create-customer-button">Create Customer</button>
+    </div>
+    <h3>Status: <span id="customer-error"></span></h3>
+    <div id="customers">
+        <h2>Select a customer</h2>
+        <p><i>Type - ID - Practice Name</i></p>
+        <select id="customer-select">
+            <option value="" placeholder="">Type - ID - Practice Name</option>
+        </select>
+    </div>
+
+    <div id="payment-form">
+        <h3>View Payment Methods</h3>
+        <select id="payment-select">
+            <option value="" placeholder="">Your Payment Methods</option>
+        </select>
+        <h3>Remove Payment Method</h3>
+        <button id="remove-button">Remove Payment Method</button>
+        <!-- <h3>Add Payment Method</h2>
+        <div id="pay-method">
+        </div>
+        <button id="pay-button">Save Customer Payment Method</button> -->
+    </div>
+
+    <div id="transactions">
+        <h2>Transactions</h2>
+        <h3><i>...................Date..................Amount..Description</i></h3>
+        <div id="transaction-list"> </div>
+    </div>
+    <script>
+        let currentCustomerId = sessionStorage.getItem('customer') || null;
+        document.getElementById('customer-select').addEventListener('change', function() {
+            currentCustomerId = this.value;
+            sessionStorage.setItem('customer', currentCustomerId);
+            sessionStorage.setItem('custType', parseInt(this.options[this.selectedIndex].text.charAt(0)));
+            document.getElementById('customer-id').textContent = currentCustomerId;
+            getPaymentMethods();
+            currPayMethod = null;
+            document.getElementById('pay-id').textContent = currPayMethod;
+            getTransactions();
+        });
+        getCustomers();
+        function getCustomers() {
+            let xhr = new XMLHttpRequest();
+            xhr.open('GET', '/get_customers');
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    let customers = JSON.parse(xhr.responseText);
+                    let customerSelect = document.getElementById('customer-select');
+                    while (customerSelect.firstChild) {
+                        customerSelect.removeChild(customerSelect.firstChild);
+                    }
+                    customers.forEach(function(customer) {
+                        let option = document.createElement('option');
+                        option.value = customer['custID'];
+                        option.textContent = customer['custType']+" - "+customer['linkedID']+" - "+customer['name'];
+                        customerSelect.appendChild(option);
+                    });
+                } else {
+                    console.error('Failed to get customers.');
+                }
+            };
+            xhr.send();
+        }
+
+        let currPayMethod = null;
+        document.getElementById('payment-select').addEventListener('change', function() {
+            currPayMethod = this.value;
+            document.getElementById('pay-id').textContent = currPayMethod;
+        });
+        function getPaymentMethods() {
+            let xhr = new XMLHttpRequest();
+            xhr.open('POST', '/get_payment_methods');
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    let payMethods = JSON.parse(xhr.responseText);
+                    let paySelect = document.getElementById('payment-select');
+                    while (paySelect.firstChild) {
+                        paySelect.removeChild(paySelect.firstChild);
+                    }
+                    let newPayMethod = document.createElement('option');
+                    newPayMethod.value = "";
+                    newPayMethod.textContent = "Use New Card";
+                    paySelect.appendChild(newPayMethod);
+                    payMethods.forEach(function(payMethod) {
+                        let option = document.createElement('option');
+                        option.value = payMethod.id;
+                        option.textContent = payMethod.card.brand+" - "+payMethod.card.last4;
+                        paySelect.appendChild(option);
+                    });
+                } else {
+                    console.error('Failed to get cards.');
+                }
+            };
+            xhr.send(JSON.stringify({ custID: currentCustomerId}));
+        }
+        document.getElementById('remove-button').addEventListener('click', function() {
+            if(currPayMethod === null || currPayMethod === "") {
+                console.error('No payment method selected.');
+                return;
+            }
+            let xhr = new XMLHttpRequest();
+            xhr.open('POST', '/remove_payment_method');
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    getPaymentMethods();
+                } else {
+                }
+            };
+            xhr.send(JSON.stringify({ payMethodID: currPayMethod}));
+        });
+
+        document.getElementById('create-customer-button').addEventListener('click', function() {
+            let type = document.getElementById('customer-type').value;
+            let ID = document.getElementById('id').value;
+            let xhr = new XMLHttpRequest();
+            xhr.open('POST', '/create_customer');
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    result = JSON.parse(xhr.responseText);
+                    if(result.error){
+                        console.error(result.error.type+": "+result.error.message);
+                        document.getElementById('customer-error').textContent = result.error.message;
+                    }else{
+                        getCustomers();
+                        document.getElementById('customer-error').textContent = 'Success';
+                    }
+                } else {
+                    console.error('Customer creation failed.');
+                }
+            };
+            xhr.send(JSON.stringify({ID: ID, custType: type}));
+        });
+
+        function getTransactions() {
+            let xhr = new XMLHttpRequest();
+            xhr.open('POST', '/get_user_transactions');
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    let transactions = JSON.parse(xhr.responseText);
+                    let transactionDiv = document.getElementById('transaction-list');
+                    while (transactionDiv.firstChild) {
+                        transactionDiv.removeChild(transactionDiv.firstChild);
+                    }
+                    transactions.forEach(function(transaction) {
+                        let transactionP = document.createElement('p');
+                        if (transaction['traDesc'] === null) {
+                            transaction['traDesc'] = "";
+                        }
+                        transactionP.textContent = transaction['traTimestamp'] +" - $" +(Math.round(transaction['traAmount'] * 100) / 100).toFixed(2)+" - "+transaction['traDesc'];
+                        transactionDiv.appendChild(transactionP);
+                    });
+                } else {
+                    console.error('Failed to get transactions.');
+                }
+            };
+            xhr.send(JSON.stringify({ custID: currentCustomerId, page: 1, maxRecords: 10}));
+        }
+    </script>
+</body>
+</html>
